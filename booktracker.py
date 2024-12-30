@@ -5,7 +5,6 @@ from tkinter import ttk, messagebox, filedialog
 import json
 from datetime import datetime
 
-# Configuration Constants
 if getattr(sys, 'frozen', False):
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
@@ -33,7 +32,10 @@ class BookTracker:
         self.books = self.load_books()
         self.status_filters = {status: tk.BooleanVar(value=True) for status in STATUSES}
 
+        # Initialize all tooltip-related variables
         self.tooltip = None
+        self.tooltip_job = None
+        self.tooltip_shown_time = None
 
         self.main = ttk.Frame(self.window, padding="10")
         self.main.pack(fill="both", expand=True)
@@ -75,8 +77,9 @@ class BookTracker:
         self.author_entry = self.create_labeled_entry(self.input_frame, "Author:", 1)
         self.tags_entry = self.create_labeled_entry(self.input_frame, "Tags:", 2)
         self.start_date_entry = self.create_labeled_entry(self.input_frame, "Start Date (dd.mm.yyyy):", 3)
+        self.finish_date_entry = self.create_labeled_entry(self.input_frame, "Finish Date (dd.mm.yyyy):", 4)
 
-        ttk.Button(self.input_frame, text="Add Book", command=self.add_book).grid(row=4, column=1, pady=10)
+        ttk.Button(self.input_frame, text="Add Book", command=self.add_book).grid(row=5, column=1, pady=10)
 
     def create_search_section(self):
         search_frame = ttk.LabelFrame(self.main, text="Search Books", padding="10")
@@ -145,7 +148,7 @@ class BookTracker:
                         book["start_date"] = self.ensure_list(book.get("start_date", []))
                         book["date_finished"] = self.ensure_list(book.get("date_finished", []))
                     self.books = books
-                    self.data_file = file_path  # Update the active file
+                    self.data_file = file_path
                     self.refresh_book_list()
                     self.update_window_title()
                     messagebox.showinfo("Success", f"Loaded books from {file_path}")
@@ -173,6 +176,7 @@ class BookTracker:
 
         self.book_list.bind("<Double-1>", self.on_double_click)
         self.book_list.bind("<Motion>", self.show_tooltip)
+        self.book_list.bind("<Leave>", self.hide_tooltip)
 
     def on_double_click(self, event):
         item_id = self.book_list.selection()[0]
@@ -210,8 +214,12 @@ class BookTracker:
         for status in STATUSES:
             ttk.Button(button_frame, text=f"Mark as {status}",
                         command=lambda s=status: self.change_status(s)).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Delete", command=self.confirm_delete).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Load File", command=self.load_file).pack(side="right", padx=5)
+        ttk.Button(button_frame, text="Manage Dates",
+                command=self.manage_selected_dates).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Delete",
+                command=self.confirm_delete).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Load File",
+                command=self.load_file).pack(side="right", padx=5)
 
     def create_labeled_entry(self, parent, label, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=5, pady=5)
@@ -234,27 +242,43 @@ class BookTracker:
             return
 
         start_date = self.start_date_entry.get().strip()
+        finish_date = self.finish_date_entry.get().strip()
+
+        parsed_start = None
+        parsed_finish = None
         try:
-            datetime.strptime(start_date, "%d.%m.%Y")
-        except ValueError:
             if start_date:
-                messagebox.showwarning("Input Error", "Invalid date format. Use DD.MM.YYYY")
-                return
+                parsed_start = datetime.strptime(start_date, "%d.%m.%Y")
+            if finish_date:
+                parsed_finish = datetime.strptime(finish_date, "%d.%m.%Y")
+                if parsed_start and parsed_finish < parsed_start:
+                    messagebox.showwarning("Date Error", "Finish date cannot be before start date.")
+                    return
+        except ValueError:
+            messagebox.showwarning("Input Error", "Invalid date format. Use DD.MM.YYYY")
+            return
+
+        status = "Unread"
+        if parsed_finish:
+            status = "Read"
+        elif parsed_start:
+            status = "Reading"
 
         new_book = {
             "title": title,
             "author": self.author_entry.get(),
             "tags": [tag.strip() for tag in self.tags_entry.get().split(",") if tag.strip()],
-            "status": "Unread",
+            "status": status,
             "start_date": [start_date] if start_date else [],
-            "date_finished": [],
+            "date_finished": [finish_date] if finish_date else [],
             "notes": ""
         }
         self.books.append(new_book)
         self.save_books()
         self.refresh_book_list()
 
-        for entry in (self.title_entry, self.author_entry, self.tags_entry, self.start_date_entry):
+        for entry in (self.title_entry, self.author_entry, self.tags_entry,
+                    self.start_date_entry, self.finish_date_entry):
             entry.delete(0, tk.END)
 
     def change_status(self, new_status):
@@ -262,15 +286,24 @@ class BookTracker:
         if not selected:
             return
         index = self.book_list.index(selected[0])
+        old_status = self.books[index]["status"]
         self.books[index]["status"] = new_status
         today = datetime.now().strftime("%d.%m.%Y")
 
-        if new_status == "Read":
-            if today not in self.ensure_list(self.books[index].get("date_finished", [])):
-                self.books[index].setdefault("date_finished", []).append(today)
-        elif new_status == "Reading":
-            if today not in self.ensure_list(self.books[index].get("start_date", [])):
-                self.books[index].setdefault("start_date", []).append(today)
+        if new_status == "Read" and old_status != "Read":
+            if messagebox.askyesno("Add Finish Date", "Would you like to set today as the finish date?"):
+                if today not in self.ensure_list(self.books[index].get("date_finished", [])):
+                    self.books[index].setdefault("date_finished", []).append(today)
+
+        elif new_status == "Reading" and old_status != "Reading":
+            if not self.books[index].get("start_date"):
+                if messagebox.askyesno("Add Start Date", "Would you like to set today as the start date?"):
+                    self.books[index].setdefault("start_date", []).append(today)
+
+        elif new_status == "Unread":
+            if messagebox.askyesno("Clear Dates", "Would you like to clear all dates for this book?"):
+                self.books[index]["start_date"] = []
+                self.books[index]["date_finished"] = []
 
         self.save_books()
         self.refresh_book_list()
@@ -345,13 +378,21 @@ class BookTracker:
         except FileNotFoundError:
             return []
 
+    def manage_selected_dates(self):
+        selected = self.book_list.selection()
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a book first.")
+            return
+        index = self.book_list.index(selected[0])
+        self.manage_dates(index)
+
     def sort_column(self, col, reverse):
         column_map = {
             "Title": "title",
             "Author": "author",
             "Status": "status",
-            "Start Date": "start_date",
-            "Date Finished": "date_finished",
+            "Started": "start_date",
+            "Finished": "date_finished",
             "Tags": "tags",
             "Notes": "notes"
         }
@@ -359,16 +400,128 @@ class BookTracker:
         key = column_map[col]
         if key in ["start_date", "date_finished"]:
             self.books.sort(
-                key=lambda book: datetime.strptime(book[key], "%d.%m.%Y") if book[key] else datetime.min,
+                key=lambda book: (
+                    datetime.strptime(book[key][-1], "%d.%m.%Y")
+                    if book[key] and book[key][-1]
+                    else datetime.min
+                ),
                 reverse=reverse
             )
         else:
             self.books.sort(
-                key=lambda book: ", ".join(book[key]) if isinstance(book[key], list) else book[key].lower(),
+                key=lambda book: (", ".join(book[key]) if isinstance(book[key], list) else str(book[key])).lower(),
                 reverse=reverse
             )
+
         self.refresh_book_list()
         self.book_list.heading(col, command=lambda: self.sort_column(col, not reverse))
+
+    def manage_dates(self, book_index):
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Manage Dates")
+        dialog.geometry("400x300")
+        dialog.transient(self.window)
+        dialog.grab_set()
+
+        x = self.window.winfo_x() + (self.window.winfo_width() - 400) // 2
+        y = self.window.winfo_y() + (self.window.winfo_height() - 300) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        book = self.books[book_index]
+
+        ttk.Label(dialog, text="Start Dates:").pack(pady=5)
+        start_frame = ttk.Frame(dialog)
+        start_frame.pack(fill="x", padx=5)
+        start_dates = tk.Listbox(start_frame, height=4)
+        start_dates.pack(side="left", fill="x", expand=True)
+        for date in book.get("start_date", []):
+            start_dates.insert(tk.END, date)
+
+        ttk.Label(dialog, text="Finish Dates:").pack(pady=5)
+        finish_frame = ttk.Frame(dialog)
+        finish_frame.pack(fill="x", padx=5)
+        finish_dates = tk.Listbox(finish_frame, height=4)
+        finish_dates.pack(side="left", fill="x", expand=True)
+        for date in book.get("date_finished", []):
+            finish_dates.insert(tk.END, date)
+
+        def add_date(date_list, list_widget):
+            date_str = self.ask_date()
+            try:
+                if date_str:
+                    datetime.strptime(date_str, "%d.%m.%Y")
+                    if date_str not in date_list:
+                        date_list.append(date_str)
+                        list_widget.insert(tk.END, date_str)
+            except ValueError:
+                messagebox.showerror("Error", "Invalid date format")
+
+        def remove_date(date_list, list_widget):
+            selection = list_widget.curselection()
+            if selection:
+                index = selection[0]
+                date_list.pop(index)
+                list_widget.delete(index)
+
+        ttk.Button(start_frame, text="+", command=lambda: add_date(
+            book["start_date"], start_dates)).pack(side="left", padx=5)
+        ttk.Button(start_frame, text="-", command=lambda: remove_date(
+            book["start_date"], start_dates)).pack(side="left")
+
+        ttk.Button(finish_frame, text="+", command=lambda: add_date(
+            book["date_finished"], finish_dates)).pack(side="left", padx=5)
+        ttk.Button(finish_frame, text="-", command=lambda: remove_date(
+            book["date_finished"], finish_dates)).pack(side="left")
+
+        def save_changes():
+            self.save_books()
+            self.refresh_book_list()
+            dialog.destroy()
+
+        ttk.Button(dialog, text="Save", command=save_changes).pack(pady=10)
+
+    def ask_date(self, title="Add Date", prompt="Enter date (DD.MM.YYYY):"):
+        dialog = tk.Toplevel(self.window)
+        dialog.title(title)
+        dialog.transient(self.window)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text=prompt, padding=10).pack()
+        entry = ttk.Entry(dialog)
+        entry.pack(padx=10, pady=5)
+        result = [None]
+
+        def on_ok():
+            result[0] = entry.get()
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="OK", command=on_ok).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side="left")
+
+        dialog.update_idletasks()
+        x = self.window.winfo_x() + (self.window.winfo_width() - dialog.winfo_width()) // 2
+        y = self.window.winfo_y() + (self.window.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        entry.focus_set()
+        dialog.wait_window()
+        return result[0]
+
+    def validate_date(self, date_str):
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(date_str, "%d.%m.%Y")
+        except ValueError:
+            return None
+
+    def format_date(self, date):
+        return date.strftime("%d.%m.%Y") if date else ""
 
     def save_books(self):
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
