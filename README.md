@@ -2,6 +2,6 @@
 
 Smol program to track books you've read.
 
-The packaged .exe is in /dist, code in booktracker.py, the .exe should work on its own.
+The installer is in /installer, code in booktracker.py, the installer version doesn't require having the .py
 
 This thing creates a books.json file in the folder the script is in.
