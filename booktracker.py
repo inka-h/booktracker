@@ -1,7 +1,7 @@
 import os
 import sys
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import json
 from datetime import datetime
 
@@ -58,6 +58,7 @@ class BookTracker:
         self.create_search_section()
         self.create_book_list_section()
         self.create_buttons_section()
+        self.update_window_title()
 
     def create_input_section(self):
         input_container = ttk.Frame(self.main)
@@ -109,7 +110,7 @@ class BookTracker:
             values = self.book_list.item(item_id, 'values')
             if len(values) > 6:
                 note = values[6]
-                if note:
+                if len(note) > 40:
                     if self.tooltip:
                         self.tooltip.destroy()
                     self.tooltip = tk.Toplevel(self.window)
@@ -117,7 +118,7 @@ class BookTracker:
                     self.tooltip.geometry(f"+{event.x_root+20}+{event.y_root+20}")
                     label = ttk.Label(self.tooltip, text=note, background="lightgray", relief="solid", borderwidth=1, wraplength=300)
                     label.pack()
-                    self.tooltip.after(5000, self.tooltip.destroy)
+                    self.tooltip.after(2000, self.tooltip.destroy)
 
     def hide_tooltip(self, event):
         if self.tooltip_job:
@@ -127,7 +128,33 @@ class BookTracker:
             if self.tooltip_shown_time:
                 self.window.after_cancel(self.tooltip_shown_time)
                 self.tooltip_shown_time = None
-            self.tooltip.after(1000, self.tooltip.destroy)
+            self.tooltip.after(0, self.tooltip.destroy)
+
+    def load_file(self):
+        file_path = filedialog.askopenfilename(
+            title="Select a JSON File",
+            filetypes=(("JSON Files", "*.json"), ("All Files", "*.*"))
+        )
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    books = json.load(f)
+                    for book in books:
+                        book.setdefault("notes", "")
+                        book.setdefault("status", "Unread")
+                        book["start_date"] = self.ensure_list(book.get("start_date", []))
+                        book["date_finished"] = self.ensure_list(book.get("date_finished", []))
+                    self.books = books
+                    self.data_file = file_path  # Update the active file
+                    self.refresh_book_list()
+                    self.update_window_title()
+                    messagebox.showinfo("Success", f"Loaded books from {file_path}")
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                messagebox.showerror("Error", f"Failed to load file: {e}")
+
+    def update_window_title(self):
+        file_name = os.path.basename(self.data_file)
+        self.window.title(f"Book Tracker - {file_name}")
 
     def create_book_list_section(self):
         tree_frame = ttk.Frame(self.main)
@@ -184,6 +211,7 @@ class BookTracker:
             ttk.Button(button_frame, text=f"Mark as {status}",
                         command=lambda s=status: self.change_status(s)).pack(side="left", padx=5)
         ttk.Button(button_frame, text="Delete", command=self.confirm_delete).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Load File", command=self.load_file).pack(side="right", padx=5)
 
     def create_labeled_entry(self, parent, label, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=5, pady=5)
