@@ -7,3 +7,11 @@ There is an InnoSetup installer in /installer, code in booktracker.py, the insta
 This thing creates a books.json file in the folder the script is in.
 
 Currently the installer path for the shortcut is wrong (whoops!) - it can be fixed by rightclicking -> properties -> change path from "booktracker.exe" to "Book Tracker.exe".
+
+FEATURES:
+- "add book" section can be collapsed
+- search and filter AND sort by clicking headings
+- multiple dates are allowed (re-reading already read books without overwriting dates)
+- load different .json files
+
+Ideally manual editing of .json should not be required at all :)
