@@ -166,7 +166,12 @@ class BookTracker:
         self.book_list = ttk.Treeview(tree_frame, columns=COLUMNS, show="headings")
         for col in COLUMNS:
             self.book_list.heading(col, text=col, command=lambda c=col: self.sort_column(c, False))
-            self.book_list.column(col, width=100, anchor="center")
+            if col == "Title":
+                self.book_list.column(col, width=180, anchor="w")
+            elif col == "Status":
+                self.book_list.column(col, width=70, anchor="center")
+            else:
+                self.book_list.column(col, width=100, anchor="w")
 
         v_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.book_list.yview)
         self.book_list.configure(yscrollcommand=v_scrollbar.set)
