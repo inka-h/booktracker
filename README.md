@@ -8,7 +8,8 @@ This thing creates a books.json file in the folder the script is in.
 
 FEATURES:
 - "add book" section can be collapsed
-- search and filter AND sort by clicking headings
+- search and filter
+- sort by clicking headings
 - multiple dates are allowed (re-reading already read books without overwriting dates)
 - load different .json files
 
